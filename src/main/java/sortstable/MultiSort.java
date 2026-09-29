@@ -1,15 +1,16 @@
 package sortstable;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
  * 多键稳定排序。
  *
- * <p>当前实现把**每个键拆成独立的一趟排序**：从优先级最低的键开始，逐键用一趟稳定的
- * 「冒泡」把整表顺一遍，靠稳定性把前面的结果套在后面结果之内。语义是对的
- * （稳定、{@code null} 在前、不改入参），但每趟都要把整表来回扫很多遍，
- * 比较次数是 **键数 × O(n²)**。
+ * <p>只用**一趟**稳定排序（JDK 的 TimSort，{@link List#sort}），比较器按
+ * {@code keys} 的优先级做字典序比较：首键分出大小就立即返回，首键相等才落到次键。
+ * 因此比较次数是 O(n log n)，且不随键数线性增长 —— 大多数行在首键上就分出了大小，
+ * 次键及以后基本不会被碰到。每一次键值比较仍走 {@link Cmp#compare}，计数口径不变。
  */
 public final class MultiSort {
 
@@ -19,30 +20,28 @@ public final class MultiSort {
      */
     public static List<Row> sort(List<Row> rows, List<Key> keys) {
         List<Row> out = new ArrayList<>(rows);
-        for (int ki = keys.size() - 1; ki >= 0; ki--) {
-            stableBubblePass(out, keys.get(ki));
+        if (out.size() < 2 || keys.isEmpty()) {
+            return out;
         }
+        out.sort(lexicographicComparator(keys));
         return out;
     }
 
-    /** 按单个键做一趟稳定冒泡：只有严格大于才交换，相等不交换，所以稳定。 */
-    private static void stableBubblePass(List<Row> rows, Key key) {
-        int n = rows.size();
-        for (int i = 0; i < n - 1; i++) {
-            boolean swapped = false;
-            for (int j = 0; j < n - 1 - i; j++) {
-                Row a = rows.get(j);
-                Row b = rows.get(j + 1);
-                if (compareByKey(key, a.get(key.field()), b.get(key.field())) > 0) {
-                    rows.set(j, b);
-                    rows.set(j + 1, a);
-                    swapped = true;
+    /**
+     * 按 {@code keys} 优先级做字典序比较的比较器：从最高优先级键开始，第一个非零结果
+     * 即为最终结果；所有键都相等返回 0（交给稳定排序保持输入顺序）。
+     */
+    private static Comparator<Row> lexicographicComparator(List<Key> keys) {
+        return (a, b) -> {
+            for (int ki = 0; ki < keys.size(); ki++) {
+                Key key = keys.get(ki);
+                int c = compareByKey(key, a.get(key.field()), b.get(key.field()));
+                if (c != 0) {
+                    return c;
                 }
             }
-            if (!swapped) {
-                break;
-            }
-        }
+            return 0;
+        };
     }
 
     /**
